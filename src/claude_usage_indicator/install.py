@@ -30,7 +30,16 @@ AUTOSTART_ENTRY = DESKTOP_ENTRY + "X-GNOME-Autostart-enabled=true\nNoDisplay=tru
 
 def _exec_cmd():
     bin_path = shutil.which("claude-usage-indicator")
-    return bin_path or f"{sys.executable} -m claude_usage_indicator.tray"
+    cmd = bin_path or f"{sys.executable} -m claude_usage_indicator.tray"
+
+    # A GUI/autostart launch won't inherit this shell's env vars, so if a
+    # proxy is set right now (interactively, where api.anthropic.com is
+    # reachable), bake it into Exec= -- otherwise the indicator would need a
+    # proxy but never get one, and silently fall back to ccusage every time.
+    proxy = os.environ.get("CLAUDE_USAGE_PROXY") or os.environ.get("HTTPS_PROXY")
+    if proxy:
+        cmd = f"env CLAUDE_USAGE_PROXY={proxy} {cmd}"
+    return cmd
 
 
 def install():
@@ -55,9 +64,13 @@ def install():
     print("Search your app menu for \"Claude Usage\" to launch it now,")
     print("or it will start automatically next time you log in.")
     print()
-    print("If api.anthropic.com needs a proxy on your network, export")
-    print("CLAUDE_USAGE_PROXY=http://host:port in the environment this launches from")
-    print("(a GUI launcher doesn't inherit your shell's proxy variables).")
+    if "env CLAUDE_USAGE_PROXY=" in exec_cmd:
+        print(f"Detected a proxy in this shell and baked it into the launcher: {exec_cmd}")
+        print("Re-run --install if that proxy address ever changes.")
+    else:
+        print("No proxy detected in this shell. If api.anthropic.com needs one on")
+        print("your network, export CLAUDE_USAGE_PROXY=http://host:port before")
+        print("re-running --install (a GUI launcher won't otherwise see it).")
 
 
 def uninstall():

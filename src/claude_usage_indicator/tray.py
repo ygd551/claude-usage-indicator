@@ -33,6 +33,13 @@ REFRESH_SECONDS = 180
 
 CREDENTIALS_PATH = os.path.expanduser("~/.claude/.credentials.json")
 LOCK_PATH = "/tmp/claude-usage-indicator.lock"
+LAST_REQUEST_PATH = "/tmp/claude-usage-indicator.last-request"
+# Restarting the app (quit, relaunch) used to fire an immediate request every
+# time on top of the normal REFRESH_SECONDS cycle -- fast repeated restarts
+# (e.g. while testing) can trip the endpoint's undocumented rate limit, which
+# then bans requests for hours. This file persists the last request time
+# across restarts so we can skip the immediate one if it's too soon.
+MIN_REQUEST_INTERVAL_SECONDS = REFRESH_SECONDS
 
 # GUI/autostart launches don't inherit an interactive shell's proxy env vars.
 # If your network needs a proxy to reach api.anthropic.com, export
@@ -64,8 +71,25 @@ def claude_code_version():
 USER_AGENT = f"claude-code/{claude_code_version()}"
 
 
+def _seconds_since_last_request():
+    try:
+        return time.time() - os.path.getmtime(LAST_REQUEST_PATH)
+    except OSError:
+        return None  # no record yet -- never throttle the very first request
+
+
+def _mark_request_now():
+    open(LAST_REQUEST_PATH, "w").close()
+    os.utime(LAST_REQUEST_PATH, None)
+
+
 def fetch_account_usage():
     """Real account-level 5h/7d percentages, straight from Anthropic's backend."""
+    elapsed = _seconds_since_last_request()
+    if elapsed is not None and elapsed < MIN_REQUEST_INTERVAL_SECONDS:
+        print(f"[account-usage] throttled: last request {elapsed:.0f}s ago, skipping", file=sys.stderr)
+        return None
+
     try:
         with open(CREDENTIALS_PATH) as f:
             token = json.load(f)["claudeAiOauth"]["accessToken"]
@@ -81,6 +105,7 @@ def fetch_account_usage():
             "anthropic-beta": "oauth-2025-04-20",
         },
     )
+    _mark_request_now()  # mark before the call: an in-flight retry still counts as "just asked"
     # ponytail: transient network/proxy blips happen; one quick retry absorbs
     # them instead of waiting a full REFRESH_SECONDS cycle to recover.
     for attempt in (1, 2):
