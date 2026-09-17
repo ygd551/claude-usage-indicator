@@ -5,6 +5,8 @@ account usage at a glance: percent remaining in the current 5-hour session
 window, percent remaining in the weekly window, and time until each resets —
 the same numbers shown in the VSCode extension's "Account & Usage" panel.
 
+![Tray icon and dropdown menu](docs/screenshot.png)
+
 ## How it works
 
 Reads the OAuth token Claude Code already stores locally
