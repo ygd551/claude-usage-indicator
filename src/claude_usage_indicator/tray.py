@@ -148,16 +148,24 @@ def fetch_ccusage_fallback():
 
 
 def time_until(iso_ts):
+    """Human-friendly countdown: '42m', '3h12m', or '2d 4h' past a day."""
     try:
         target = datetime.fromisoformat(iso_ts)
         delta = target - datetime.now(timezone.utc)
         mins = max(0, int(delta.total_seconds() // 60))
-        return f"{mins // 60}h{mins % 60:02d}m"
+        hours, mins = divmod(mins, 60)
+        days, hours = divmod(hours, 24)
+        if days:
+            return f"{days}d {hours}h"
+        if hours:
+            return f"{hours}h{mins:02d}m"
+        return f"{mins}m"
     except Exception:
         return "?"
 
 
 def format_from_account(usage):
+    """Returns (tray label, [menu line, menu line, ...])."""
     five_hour = usage.get("five_hour") or {}
     seven_day = usage.get("seven_day") or {}
 
@@ -170,51 +178,59 @@ def format_from_account(usage):
     week_reset = time_until(seven_day["resets_at"]) if seven_day.get("resets_at") else "?"
 
     if session_left is not None and week_left is not None:
-        label = f"\U0001f916 5h:{session_left:.0f}% 7d:{week_left:.0f}%"
+        label = f"\U0001f916 {session_left:.0f}% / {week_left:.0f}%"
     else:
         label = "\U0001f916 ?"
-    tooltip = (
-        f"5-hour session: {session_left:.0f}% left, resets in {session_reset}\n"
-        f"Weekly: {week_left:.0f}% left, resets in {week_reset}"
-    )
-    return label, tooltip
+
+    lines = [
+        f"⏳ 5-hour: {session_left:.0f}% left · resets in {session_reset}",
+        f"\U0001f4c5 Weekly: {week_left:.0f}% left · resets in {week_reset}",
+    ]
+    return label, lines
 
 
 def format_from_ccusage(block):
+    """Returns (tray label, [menu line, menu line, ...])."""
     if not block:
-        return "Claude: idle", "No active session block (ccusage fallback)"
+        return "Claude: idle", ["No active session block (ccusage fallback)"]
     tokens = block.get("totalTokens", 0)
     cost = block.get("costUSD", 0.0)
     remaining = block.get("projection", {}).get("remainingMinutes")
     remaining_str = f"{remaining // 60}h{remaining % 60:02d}m" if remaining is not None else "?"
-    label = f"\U0001f916 {tokens:,}tok ${cost:.2f} (est.)"
-    tooltip = (
-        f"[ccusage fallback -- token estimate, not account %]\n"
-        f"Tokens used this block: {tokens:,}\n"
-        f"Cost: ${cost:.2f}\n"
-        f"Block resets in: {remaining_str}"
-    )
-    return label, tooltip
+    label = f"\U0001f916 {tokens:,}tok (est.)"
+    lines = [
+        "⚠️ Estimate only (ccusage fallback, not account %)",
+        f"\U0001f4b0 {tokens:,} tokens · ${cost:.2f} · resets in {remaining_str}",
+    ]
+    return label, lines
 
 
-def refresh(indicator, menu_item_status):
+MENU_STATUS_LINES = 2  # matches the max number of lines format_from_* returns
+
+
+def refresh(indicator, menu_status_items):
     usage = fetch_account_usage()
     if usage is not None:
-        label, tooltip = format_from_account(usage)
+        label, lines = format_from_account(usage)
     else:
-        label, tooltip = format_from_ccusage(fetch_ccusage_fallback())
+        label, lines = format_from_ccusage(fetch_ccusage_fallback())
 
     indicator.set_label(label, "")
-    menu_item_status.set_label(tooltip.replace("\n", "  |  "))
+    for i, item in enumerate(menu_status_items):
+        item.set_label(lines[i] if i < len(lines) else "")
+        item.set_visible(i < len(lines))
     return True  # keep the GLib timer running
 
 
 def build_menu():
     menu = Gtk.Menu()
 
-    menu_item_status = Gtk.MenuItem(label="Loading...")
-    menu_item_status.set_sensitive(False)
-    menu.append(menu_item_status)
+    status_items = []
+    for _ in range(MENU_STATUS_LINES):
+        item = Gtk.MenuItem(label="Loading...")
+        item.set_sensitive(False)
+        menu.append(item)
+        status_items.append(item)
 
     menu.append(Gtk.SeparatorMenuItem())
 
@@ -223,7 +239,7 @@ def build_menu():
     menu.append(quit_item)
 
     menu.show_all()
-    return menu, menu_item_status
+    return menu, status_items
 
 
 def main():
@@ -235,11 +251,11 @@ def main():
         AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
     )
     indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-    menu, menu_item_status = build_menu()
+    menu, status_items = build_menu()
     indicator.set_menu(menu)
 
-    refresh(indicator, menu_item_status)
-    GLib.timeout_add_seconds(REFRESH_SECONDS, refresh, indicator, menu_item_status)
+    refresh(indicator, status_items)
+    GLib.timeout_add_seconds(REFRESH_SECONDS, refresh, indicator, status_items)
     Gtk.main()
 
 
