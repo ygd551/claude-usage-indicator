@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-usage-indicator"
+version = "0.1.0"
+description = "Ubuntu/GNOME top-panel tray icon showing Claude Code account usage (5h session % and weekly % remaining)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = [
+    "PyGObject>=3.36",
+    "pycairo>=1.16",
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_GITHUB_USERNAME/claude-usage-indicator"
+
+[project.scripts]
+claude-usage-indicator = "claude_usage_indicator.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
